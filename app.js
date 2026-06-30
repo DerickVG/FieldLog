@@ -218,9 +218,12 @@ async function editPhoto(index) {
   const photo = ensureReport(data, selectedDate).photos[index];
   if (!photo) return;
   try {
-    const edited = await openPhotoEditor(photo.uri);
+    const baseUri = photo.baseUri || photo.uri;
+    const edited = await openPhotoEditor({ source:baseUri, actions:photo.markup || [] });
     if (!edited) return;
-    photo.uri = edited;
+    photo.baseUri = baseUri;
+    photo.uri = edited.uri;
+    photo.markup = edited.actions;
     persist();
     render();
   } catch {

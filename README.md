@@ -47,8 +47,12 @@ Web reminders work while FieldLog is open. Reliable background reminders require
 
 ## Updating installed copies
 
-Publish changes to the same GitHub Pages address and increase the cache name in `sw.js` for every release (`fieldlog-pwa-v2`, then `v3`, and so on). Employees keep the same Home Screen icon; they only need to close and reopen FieldLog after the update is published.
+Publish changes to the same GitHub Pages address and increase the cache name in `sw.js` for every release (`fieldlog-pwa-v3`, then `v4`, and so on). Employees keep the same Home Screen icon; they only need to close and reopen FieldLog after the update is published.
 
 ## Photo markup
 
 Tap any attached jobsite photo to draw, add arrows, circles, boxes, or text. Undo removes the most recent change. Save replaces that photo with its marked-up copy in the report.
+
+### Advanced photo editing
+
+Pinch with two fingers to zoom or pan without creating markup. Use Select / Move to tap any existing object, move it, resize it with a corner handle, edit text size, or delete only that selected object.

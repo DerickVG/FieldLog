@@ -17,18 +17,20 @@
 .photo-edit-target span{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);white-space:nowrap;background:#172536d9;color:#fff;border-radius:999px;padding:7px 12px;font-size:11px;font-weight:800}
 .photo-head-actions{display:flex;align-items:center;gap:12px}
 .edit-photo{border:0;background:transparent;color:var(--navy);font-size:11px;font-weight:800;cursor:pointer}
-.markup-modal{position:fixed;z-index:1000;inset:0;background:#101820;color:#fff;display:grid;grid-template-rows:auto auto auto minmax(0,1fr) auto;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
-.markup-header{min-height:64px;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #ffffff1f}
-.markup-header strong{display:block;font-size:17px}.markup-header span{display:block;color:#b9c4ce;font-size:11px;margin-top:3px}
-.markup-close{width:40px;height:40px;border:0;border-radius:50%;background:#ffffff1a;color:#fff;font-size:27px;cursor:pointer}
-.markup-tools{display:flex;gap:8px;overflow-x:auto;padding:10px 12px;background:#17232e;scrollbar-width:none}
-.markup-tool{flex:0 0 auto;min-height:40px;border:1px solid #ffffff2e;border-radius:12px;background:#263644;color:#fff;padding:0 14px;font-weight:800;cursor:pointer}
-.markup-tool.active{background:#dbe7ef;color:#172536;border-color:#dbe7ef}.markup-tool.undo{margin-left:auto}.markup-tool:disabled{opacity:.35}
-.markup-stage{min-height:0;display:grid;place-items:center;overflow:auto;padding:10px;background:#0a0f14}
-.markup-stage canvas{display:block;max-width:100%;max-height:100%;background:#fff;box-shadow:0 5px 24px #0008;touch-action:none}
-.markup-actions{display:flex;gap:10px;padding:12px;background:#17232e;border-top:1px solid #ffffff1f}
-.markup-actions .button{min-height:48px}
-@media(max-width:430px){.markup-header{min-height:58px}.markup-tools{padding:8px}.markup-tool{min-height:38px;padding:0 12px}.markup-actions{padding:9px}}
+.markup-modal{position:fixed;z-index:1000;inset:0;background:#101820;color:#fff;display:grid;grid-template-rows:auto auto auto minmax(0,1fr) auto;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);overscroll-behavior:none}
+.markup-header{min-height:64px;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #ffffff1f;touch-action:manipulation}
+.markup-header strong{display:block;font-size:17px}.markup-header>div>span{display:block;color:#b9c4ce;font-size:11px;margin-top:3px}.markup-header-actions{display:flex;align-items:center;gap:9px}.markup-header-actions .markup-zoom{display:block;min-width:52px;margin:0;border-radius:999px;background:#ffffff14;color:#dbe6ee;padding:7px 10px;text-align:center;font-size:11px;font-weight:800}
+.markup-close{width:40px;height:40px;border:0;border-radius:50%;background:#ffffff1a;color:#fff;font-size:27px;cursor:pointer;touch-action:manipulation}
+.markup-tools{display:flex;gap:8px;overflow-x:auto;padding:10px 12px;background:#17232e;scrollbar-width:none;overscroll-behavior-x:contain;touch-action:pan-x}
+.markup-tool{flex:0 0 auto;min-height:42px;border:1px solid #ffffff2e;border-radius:12px;background:#263644;color:#fff;padding:0 14px;font-weight:800;cursor:pointer;touch-action:manipulation}
+.markup-tool.active{background:#dbe7ef;color:#172536;border-color:#dbe7ef}.markup-tool.undo{margin-left:auto}.markup-tool.delete:not(:disabled){background:#713331;border-color:#a9504c}.markup-tool:disabled{opacity:.35}
+.markup-stage{position:relative;min-height:0;display:grid;place-items:center;overflow:hidden;padding:10px;background:#0a0f14;touch-action:none}
+.markup-canvas-wrap{display:grid;place-items:center;transform-origin:center center;will-change:transform;touch-action:none}
+.markup-stage canvas{display:block;background:#fff;box-shadow:0 5px 24px #0008;touch-action:none;user-select:none;-webkit-user-select:none}
+.markup-gesture-hint{position:absolute;pointer-events:none;left:50%;bottom:12px;transform:translateX(-50%);white-space:nowrap;border-radius:999px;background:#071018bf;color:#dce7ef;padding:7px 11px;font-size:10px;font-weight:800}
+.markup-actions{display:flex;gap:10px;padding:12px;background:#17232e;border-top:1px solid #ffffff1f;touch-action:manipulation}
+.markup-actions .button{min-height:48px;touch-action:manipulation}
+.markup-text-entry{display:grid;grid-template-columns:minmax(0,1fr);gap:7px;padding:9px 12px;background:#21313e;border-top:1px solid #ffffff12;touch-action:manipulation}.markup-text-entry[hidden]{display:none}.markup-text-row{display:flex;gap:8px}.markup-text-row input{min-width:0;flex:1;border:1px solid #ffffff38;border-radius:10px;background:#fff;color:#172536;padding:10px 12px;font:inherit;font-size:16px}.markup-text-row button{border:0;border-radius:10px;background:#dbe7ef;color:#172536;padding:0 14px;font-weight:800}.markup-text-entry>span{color:#c6d0d8;font-size:11px}.markup-text-size{display:flex;align-items:center;gap:9px;color:#d8e2e9;font-size:11px;font-weight:800}.markup-text-size input{flex:1;min-width:80px}.markup-text-size output{min-width:42px;text-align:right;color:#fff}
+@media(max-width:430px){.markup-header{min-height:58px;padding:9px 11px}.markup-header>div>span{max-width:220px}.markup-tools{padding:8px}.markup-tool{min-height:40px;padding:0 12px}.markup-actions{padding:9px}.markup-gesture-hint{bottom:8px}.markup-text-entry{gap:6px}}
 
-.markup-text-entry{display:flex;align-items:center;gap:10px;padding:9px 12px;background:#21313e;border-top:1px solid #ffffff12}.markup-text-entry[hidden]{display:none}.markup-text-entry input{min-width:0;flex:1;border:1px solid #ffffff38;border-radius:10px;background:#fff;color:#172536;padding:10px 12px;font:inherit;font-size:14px}.markup-text-entry span{color:#c6d0d8;font-size:11px}
-@media(max-width:430px){.markup-text-entry{align-items:stretch;flex-direction:column;gap:5px}.markup-text-entry span{padding-left:2px}}
+.markup-header{grid-row:1}.markup-tools{grid-row:2}.markup-text-entry{grid-row:3}.markup-stage{grid-row:4}.markup-actions{grid-row:5}
