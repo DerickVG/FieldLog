@@ -57,7 +57,8 @@ export function createInitialData() {
   return {
     timesheets,
     reports,
-    settings: { name:'', notificationsEnabled:false, reminderTime:'17:00' }
+    settings: { name:'', notificationsEnabled:false, reminderTime:'17:00' },
+    tasks: []
   };
 }
 
@@ -70,6 +71,9 @@ function normalize(data) {
   fresh.timesheets = fresh.timesheets || {};
   fresh.reports = fresh.reports || {};
   fresh.settings = Object.assign({ name:'', notificationsEnabled:false, reminderTime:'17:00' }, fresh.settings || {});
+  fresh.tasks = Array.isArray(fresh.tasks) ? fresh.tasks.map(function(task) {
+    return Object.assign({ id:Math.random().toString(36).slice(2)+Date.now().toString(36), title:'', project:'', status:'todo', priority:'medium', dueDate:'', assignee:'', description:'', coordination:'', archived:false, createdAt:new Date().toISOString(), updatedAt:new Date().toISOString(), completedAt:'' }, task || {});
+  }) : [];
   Object.keys(fresh.timesheets).forEach(function(key) {
     fresh.timesheets[key].days.forEach(function(day) {
       day.entries = (day.entries || []).filter(function(entry, index) { return index === 0 || hasContent(entry); });

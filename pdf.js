@@ -102,3 +102,28 @@ export function exportDailyReport(report, employeeName) {
     '<div class="section compact"><div class="section-title">DELAYS, ISSUES, OR MATERIALS NEEDED</div><div class="section-body">' + esc(report.issues) + '</div></div></section>' + photos;
   openPrint(employeeName + ' Daily Progress Report', css, body);
 }
+
+export function exportTaskPlan(tasks, scope) {
+  const today = new Date();
+  const todayKey = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2,'0') + '-' + String(today.getDate()).padStart(2,'0');
+  const rows = tasks.map(function(task) {
+    const overdue = task.status !== 'complete' && task.dueDate && task.dueDate < todayKey;
+    const status = task.status === 'progress' ? 'In Progress' : task.status === 'complete' ? 'Complete' : 'To-do';
+    const details = [task.description,task.coordination ? 'Coordination: ' + task.coordination : ''].filter(Boolean).join(' · ');
+    return '<tr><td><b>' + esc(task.project) + '</b></td><td><strong>' + esc(task.title) + '</strong><small>' + esc(details) + '</small></td><td><span class="status ' + task.status + '">' + status + '</span></td><td class="priority ' + task.priority + '">' + esc(task.priority) + '</td><td class="' + (overdue ? 'overdue' : '') + '">' + (task.dueDate ? dateText(task.dueDate) : 'Backlog') + '</td><td>' + esc(task.assignee || 'Unassigned') + '</td></tr>';
+  }).join('');
+  const open = tasks.filter(function(task) { return task.status !== 'complete'; }).length;
+  const complete = tasks.length-open;
+  const css = [
+    '@page{size:letter landscape;margin:0}',
+    'body{font-size:9px}.task-print-page{height:8.5in;padding:.35in;overflow:hidden}',
+    '.brand{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}.brand span{font-size:9px;letter-spacing:1.2px}',
+    '.summary{display:flex;gap:8px;margin-bottom:10px}.summary div{background:#eef2f4;border-radius:8px;padding:8px 12px;font-weight:700}.summary b{color:#25384d;font-size:14px;margin-right:5px}',
+    'table{width:100%;border-collapse:collapse;table-layout:fixed}th{background:#25384d;color:#fff;text-align:left;padding:8px 7px;font-size:7px;letter-spacing:.9px}',
+    'td{border:1px solid #d7dfe5;padding:7px;vertical-align:top;line-height:1.35}tr:nth-child(even){background:#f6f8f9}td:nth-child(1){width:15%}td:nth-child(2){width:39%}td:nth-child(3){width:11%}td:nth-child(4){width:9%}td:nth-child(5){width:11%}td:nth-child(6){width:15%}',
+    'td strong{display:block;font-size:10px;margin-bottom:3px}td small{display:block;color:#647482;font-size:7px}.status{display:inline-block;border-radius:999px;padding:4px 7px;font-weight:700}.status.todo{background:#e7ebee;color:#52616d}.status.progress{background:#dbeafb;color:#2767a8}.status.complete{background:#deefe5;color:#2d7451}',
+    '.priority{text-transform:uppercase;font-size:7px;font-weight:800}.priority.urgent{color:#a43632}.priority.high{color:#bd662c}.overdue{color:#b43834;font-weight:800}'
+  ].join('');
+  const body = '<section class="task-print-page"><div class="brand"><h1>Renaissance Task Tracker</h1><span>' + esc(scope) + ' · ' + dateText(todayKey) + '</span></div><div class="summary"><div><b>' + tasks.length + '</b> TASKS SHOWN</div><div><b>' + open + '</b> OPEN</div><div><b>' + complete + '</b> COMPLETE</div></div><table><thead><tr><th>PROJECT / JOBSITE</th><th>TASK / DETAILS</th><th>STATUS</th><th>PRIORITY</th><th>DUE</th><th>ASSIGNED TO</th></tr></thead><tbody>' + rows + '</tbody></table></section>';
+  openPrint('Renaissance Task Tracker',css,body);
+}

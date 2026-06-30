@@ -47,7 +47,7 @@ Web reminders work while FieldLog is open. Reliable background reminders require
 
 ## Updating installed copies
 
-Publish changes to the same GitHub Pages address and increase the cache name in `sw.js` for every release (`fieldlog-pwa-v3`, then `v4`, and so on). Employees keep the same Home Screen icon; they only need to close and reopen FieldLog after the update is published.
+Publish changes to the same GitHub Pages address and increase the cache name in `sw.js` for every release (`fieldlog-pwa-v4`, then `v5`, and so on). Employees keep the same Home Screen icon; they only need to close and reopen FieldLog after the update is published.
 
 ## Photo markup
 
@@ -56,3 +56,11 @@ Tap any attached jobsite photo to draw, add arrows, circles, boxes, or text. Und
 ### Advanced photo editing
 
 Pinch with two fingers to zoom or pan without creating markup. Use Select / Move to tap any existing object, move it, resize it with a corner handle, edit text size, or delete only that selected object.
+
+## Task Tracker
+
+Task Tracker coordinates work across multiple jobsites with color-coded status, priority, assignments, due dates, overdue and backlog views, project progress summaries, coordination notes, search, filters, archiving, and an exportable owner work plan.
+
+## Automatic timesheet hours
+
+Enter Start and End times and FieldLog automatically calculates the row hours, weekly total, and Home dashboard total. AM/PM, 24-hour time, and overnight shifts are supported.
