@@ -44,3 +44,11 @@ Export opens a print-ready version using the supplied navy timesheet or daily-pr
 Records and photos remain in each browser's local storage and are not uploaded. Clearing Safari website data removes them. Photos are compressed before storage.
 
 Web reminders work while FieldLog is open. Reliable background reminders require a hosted Web Push service and are not included in this no-backend edition.
+
+## Updating installed copies
+
+Publish changes to the same GitHub Pages address and increase the cache name in `sw.js` for every release (`fieldlog-pwa-v2`, then `v3`, and so on). Employees keep the same Home Screen icon; they only need to close and reopen FieldLog after the update is published.
+
+## Photo markup
+
+Tap any attached jobsite photo to draw, add arrows, circles, boxes, or text. Undo removes the most recent change. Save replaces that photo with its marked-up copy in the report.

@@ -3,6 +3,7 @@ import {
   shiftDate, newEntry, totalHours, completionForDate, parseDate
 } from './data.js';
 import { exportTimesheet, exportDailyReport } from './pdf.js';
+import { openPhotoEditor } from './markup.js';
 
 let data = loadData();
 let screen = 'home';
@@ -49,7 +50,7 @@ function homeView() {
   const sheet = ensureWeek(data, selectedWeek);
   const report = ensureReport(data, selectedDate);
   const started = Boolean(report.project || report.completed || report.photos.length);
-  return '<main class="page"><div class="kicker">FIELDLOG</div><h1 class="page-title">Spiess Properties</h1><p class="subtitle">Timesheets, daily reports, and jobsite photos in one place.</p>' +
+  return '<main class="page"><div class="kicker">FIELDLOG</div><h1 class="page-title">Renaissance</h1><p class="subtitle">Timesheets, daily reports, and jobsite photos in one place.</p>' +
     '<section class="hero"><div class="hero-label">SELECTED WEEK</div><div class="hero-value">' + totalHours(sheet).toFixed(2) + '</div><div class="hero-unit">hours logged</div><div class="hero-rule"></div><div class="hero-meta">Week of ' + esc(sheet.weekOf) + '</div></section>' +
     '<h2 class="section-title">Your paperwork</h2>' +
     '<div class="card-link" data-screen="timesheet"><div class="card-icon">▦</div><div class="card-copy"><div class="card-title">Weekly timesheet</div><div class="card-body">Add only the projects you worked on each day</div></div><div class="arrow">›</div></div>' +
@@ -83,7 +84,7 @@ function timesheetView() {
 function dailyView() {
   const report = ensureReport(data, selectedDate);
   const photos = report.photos.map(function(photo, index) {
-    return '<section class="photo-card"><img src="' + photo.uri + '" alt="Jobsite photo ' + (index + 1) + '"><div class="photo-body"><div class="photo-head"><div class="photo-number">PHOTO ' + (index + 1) + '</div><button class="remove" data-action="remove-photo" data-photo="' + index + '">Remove</button></div>' +
+    return '<section class="photo-card"><button type="button" class="photo-edit-target" data-action="edit-photo" data-photo="' + index + '" aria-label="Mark up jobsite photo ' + (index + 1) + '"><img src="' + photo.uri + '" alt="Jobsite photo ' + (index + 1) + '"><span>Tap photo to mark up</span></button><div class="photo-body"><div class="photo-head"><div class="photo-number">PHOTO ' + (index + 1) + '</div><div class="photo-head-actions"><button class="edit-photo" data-action="edit-photo" data-photo="' + index + '">Mark up</button><button class="remove" data-action="remove-photo" data-photo="' + index + '">Remove</button></div></div>' +
       field('CAPTION', photo.caption, 'class="photo-caption input" data-photo="' + index + '" placeholder="Location, activity, or condition shown"', false) + '</div></section>';
   }).join('');
   return '<main class="page"><div class="kicker">DAILY PROGRESS REPORT</div><h1 class="page-title">Capture the day</h1><p class="subtitle">Record the work, flag what is next, and attach jobsite photos.</p>' +
@@ -93,7 +94,7 @@ function dailyView() {
     '<section class="form-section"><div class="form-band">NEXT-DAY LOOK-AHEAD</div>' + field('PLAN', report.lookAhead, 'class="daily-input textarea" data-field="lookAhead" placeholder="What is planned for the next workday?"', true) + '</section>' +
     '<section class="form-section"><div class="dark-label">DELAYS, ISSUES, OR MATERIALS NEEDED</div>' + field('NOTES', report.issues, 'class="daily-input textarea" data-field="issues" placeholder="Safety concerns, delays, inspections, deliveries, or materials..."', true) + '</section>' +
     '<h2 class="section-title">Jobsite photos <span class="card-body">(' + report.photos.length + ')</span></h2><div class="buttons"><button class="button" data-action="camera">● Take photo</button><button class="button secondary" data-action="library">＋ Photo library</button></div>' + photos +
-    '<section class="export-card"><div class="export-title">Create the report package</div><div class="export-body">The first page matches the supplied daily report; photos follow on captioned pages.</div><button class="button" data-action="export-daily">Export report + photos as PDF</button></section></main>';
+    '<section class="export-card"><div class="export-title">Create the report package</div><div class="export-body">The full report stays on page one; each photo follows with its caption directly above it.</div><button class="button" data-action="export-daily">Export report + photos as PDF</button></section></main>';
 }
 
 function formatTime(value) {
@@ -175,6 +176,7 @@ function handleAction(action, el) {
   }
   if (action === 'camera') cameraInput.click();
   if (action === 'library') libraryInput.click();
+  if (action === 'edit-photo') editPhoto(Number(el.dataset.photo));
   if (action === 'remove-photo') {
     ensureReport(data,selectedDate).photos.splice(Number(el.dataset.photo),1); persist(); render();
   }
@@ -210,6 +212,20 @@ async function compressPhoto(file) {
   canvas.height = Math.round(image.height * scale);
   canvas.getContext('2d').drawImage(image,0,0,canvas.width,canvas.height);
   return canvas.toDataURL('image/jpeg',0.72);
+}
+
+async function editPhoto(index) {
+  const photo = ensureReport(data, selectedDate).photos[index];
+  if (!photo) return;
+  try {
+    const edited = await openPhotoEditor(photo.uri);
+    if (!edited) return;
+    photo.uri = edited;
+    persist();
+    render();
+  } catch {
+    alert('The photo could not be opened for editing.');
+  }
 }
 
 async function addPhotos(files) {
