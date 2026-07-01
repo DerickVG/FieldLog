@@ -8,6 +8,8 @@ import {
   requestPersistentStorage, buildBackup, restoreBackup
 } from './media-store.js';
 import { openPhotoEditor } from './markup.js';
+import { getDocument, GlobalWorkerOptions } from './vendor/pdf.mjs';
+GlobalWorkerOptions.workerSrc = new URL('./vendor/pdf.worker.mjs',import.meta.url).href;
 import { TASK_STATUSES, TASK_PRIORITIES, createTask, statusLabel, priorityLabel, isOverdue, isDueSoon, taskCounts, projectSummaries, sortTasks } from './tasks.js';
 
 let data = loadData();
@@ -396,7 +398,45 @@ function settingsView() {
 
 function pdfPreviewView() {
   if (!pdfPreview) return '<main class="page"><h1>PDF preview unavailable</h1><button class="button" data-action="close-pdf-preview">Go back</button></main>';
-  return '<main class="pdf-preview-page"><div class="pdf-preview-head"><button data-action="close-pdf-preview">‹ Back</button><div><div class="kicker">PDF PREVIEW</div><h1>' + esc(pdfPreview.title) + '</h1><span>' + pdfPreview.pageCount + ' page' + (pdfPreview.pageCount === 1 ? '' : 's') + '</span></div></div><div class="pdf-frame-wrap"><iframe class="pdf-frame" src="' + pdfPreview.url + '#toolbar=0&view=FitH" title="PDF preview"></iframe></div><div class="pdf-preview-actions"><button class="button" data-action="share-pdf">Share / Save PDF</button><button class="button secondary" data-action="print-pdf">Print</button></div></main>';
+  return '<main class="pdf-preview-page"><div class="pdf-preview-head"><button data-action="close-pdf-preview">‹ Back</button><div><div class="kicker">PDF PREVIEW</div><h1>' + esc(pdfPreview.title) + '</h1><span>' + pdfPreview.pageCount + ' page' + (pdfPreview.pageCount === 1 ? '' : 's') + ' · scroll to view all pages</span></div></div><div id="pdf-pages" class="pdf-pages"><div class="pdf-loading">Preparing every PDF page…</div></div><div class="pdf-preview-actions"><button class="button" data-action="share-pdf">Share / Save PDF</button><button class="button secondary" data-action="print-pdf">Print</button></div></main>';
+}
+
+async function renderPdfPreviewPages() {
+  const container = document.getElementById('pdf-pages');
+  const activePreview = pdfPreview;
+  if (!container || !activePreview) return;
+  try {
+    const source = new Uint8Array(await activePreview.blob.arrayBuffer());
+    const documentTask = getDocument({ data:source });
+    const pdfDocument = await documentTask.promise;
+    container.innerHTML = '';
+    for (let pageNumber=1;pageNumber<=pdfDocument.numPages;pageNumber+=1) {
+      if (pdfPreview !== activePreview || !document.getElementById('pdf-pages')) {
+        documentTask.destroy();
+        return;
+      }
+      const page = await pdfDocument.getPage(pageNumber);
+      const baseViewport = page.getViewport({ scale:1 });
+      const availableWidth = Math.max(280,Math.min(760,container.clientWidth-16 || 560));
+      const viewport = page.getViewport({ scale:availableWidth/baseViewport.width });
+      const card = document.createElement('section');
+      card.className = 'pdf-page-card';
+      const label = document.createElement('div');
+      label.className = 'pdf-page-label';
+      label.textContent = 'PAGE ' + pageNumber + ' OF ' + pdfDocument.numPages;
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.ceil(viewport.width);
+      canvas.height = Math.ceil(viewport.height);
+      canvas.style.aspectRatio = viewport.width + ' / ' + viewport.height;
+      card.appendChild(label);
+      card.appendChild(canvas);
+      container.appendChild(card);
+      await page.render({ canvasContext:canvas.getContext('2d',{ alpha:false }),viewport:viewport }).promise;
+      page.cleanup();
+    }
+  } catch {
+    if (container && pdfPreview === activePreview) container.innerHTML = '<div class="pdf-preview-error">The page preview could not be drawn on this device. Use Share / Save PDF to open the complete report.</div>';
+  }
 }
 
 function render() {
@@ -405,6 +445,7 @@ function render() {
   const view = screen === 'timesheet' ? timesheetView() : screen === 'daily' ? dailyView() : screen === 'tasks' ? tasksView() : screen === 'settings' ? settingsView() : screen === 'pdf-preview' ? pdfPreviewView() : homeView();
   app.innerHTML = '<div class="shell">' + view + (screen === 'pdf-preview' ? '' : nav()) + directoryLists() + '</div>';
   bind();
+  if (screen === 'pdf-preview') renderPdfPreviewPages();
 }
 
 function bind() {
@@ -807,8 +848,8 @@ async function handleAction(action, el) {
   }
   if (action === 'share-pdf' && pdfPreview) await shareOrSave(pdfPreview.blob,pdfPreview.filename);
   if (action === 'print-pdf' && pdfPreview) {
-    const frame = document.querySelector('.pdf-frame');
-    if (frame && frame.contentWindow) frame.contentWindow.print();
+    const printWindow = window.open(pdfPreview.url,'_blank');
+    if (!printWindow) alert('Your browser blocked the print window. Use Share / Save PDF instead.');
   }
 }
 

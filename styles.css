@@ -68,3 +68,8 @@
 @media(max-width:430px){.choice-menu{max-height:205px}.collapsible-card>summary{min-height:42px}}
 
 .day-card{overflow:visible}.day-header{border-radius:20px 20px 0 0}.day-card>.add-project{border-radius:0 0 20px 20px}.choice-field:focus-within{z-index:40}
+
+
+/* FieldLog v5.2: scrollable rendering for every PDF page */
+.pdf-pages{display:grid;gap:16px;min-height:430px;padding:12px;border-radius:15px;background:#69747c;box-shadow:0 9px 24px #17253632}.pdf-loading,.pdf-preview-error{display:grid;place-items:center;min-height:380px;border-radius:10px;background:#fff;color:var(--muted);padding:24px;text-align:center;font-size:13px;font-weight:750}.pdf-page-card{overflow:hidden;border-radius:9px;background:#fff;box-shadow:0 6px 18px #1725364d}.pdf-page-label{padding:8px 10px;background:#eaf0f4;color:var(--navy);font-size:8px;font-weight:900;letter-spacing:1px}.pdf-page-card canvas{display:block;width:100%;height:auto;background:#fff}
+@media(max-width:430px){.pdf-pages{padding:7px;gap:11px}.pdf-page-label{padding:7px 9px}}
