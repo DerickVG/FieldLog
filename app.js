@@ -22,6 +22,8 @@ let reminderTimer = null;
 let storageInfo = { usage:0, quota:0, percent:0, persistent:false, photoUsage:0, photos:0 };
 let pdfPreview = null;
 let screenBeforePreview = 'home';
+let settingsSections = { employees:false, jobsites:false, photos:false };
+let photoCleanupPage = 0;
 const app = document.getElementById('app');
 const cameraInput = document.getElementById('camera-input');
 const libraryInput = document.getElementById('library-input');
@@ -55,7 +57,20 @@ function touchDirectory(type,name) {
 }
 
 function directoryLists() {
-  return '<datalist id="jobsite-options">' + directoryOptions('jobsites') + '</datalist><datalist id="employee-options">' + directoryOptions('employees') + '</datalist>';
+  return '';
+}
+
+function choiceField(label,value,inputAttrs,type,id) {
+  const classMatch = String(inputAttrs || '').match(/class="([^"]*)"/);
+  const extraClass = classMatch ? classMatch[1] : '';
+  inputAttrs = String(inputAttrs || '').replace(/class="[^"]*"/,'');
+  const choices = directoryValues(type,true);
+  const panel = choices.length
+    ? choices.map(function(item) {
+        return '<button type="button" data-action="choose-directory-value" data-choice-input="' + id + '" data-choice-value="' + esc(item.name) + '">' + esc(item.name) + '</button>';
+      }).join('')
+    : '<div class="choice-empty">No active names in Settings. You can still type one manually.</div>';
+  return '<div class="field choice-field"><label for="' + id + '">' + esc(label) + '</label><div class="choice-control"><input id="' + id + '" class="input directory-choice-input ' + extraClass + '" value="' + esc(value) + '" ' + inputAttrs + ' data-choice-target="' + id + '-choices"><button type="button" class="choice-arrow" data-action="toggle-directory-choice" data-choice-panel="' + id + '-choices" aria-label="Show ' + esc(label.toLowerCase()) + ' options" aria-expanded="false">⌄</button></div><div id="' + id + '-choices" class="choice-menu" hidden>' + panel + '</div></div>';
 }
 
 function formatBytes(bytes) {
@@ -149,7 +164,7 @@ function timesheetView() {
       const base = 'data-day="' + dayIndex + '" data-entry="' + entryIndex + '"';
       return '<div class="entry"><div class="entry-heading"><div class="entry-number">PROJECT ' + (entryIndex + 1) + '</div>' +
         (day.entries.length > 1 ? '<button class="remove" data-action="remove-project" ' + base + '>Remove</button>' : '') + '</div>' +
-        field('PROJECT', entry.project, 'class="ts-input input" data-field="project" ' + base + ' list="jobsite-options" placeholder="Choose or enter a jobsite"', false) +
+        choiceField('PROJECT', entry.project, 'class="ts-input" data-field="project" ' + base + ' placeholder="Choose or enter a jobsite"', 'jobsites', 'ts-project-' + dayIndex + '-' + entryIndex) +
         '<div class="time-row">' +
         field('START', entry.startTime, 'class="ts-input input" data-field="startTime" ' + base + ' placeholder="7:00 AM"', false) +
         field('END', entry.endTime, 'class="ts-input input" data-field="endTime" ' + base + ' placeholder="3:30 PM"', false) +
@@ -173,7 +188,7 @@ function dailyView() {
   }).join('');
   return '<main class="page"><div class="kicker">DAILY PROGRESS REPORT</div><h1 class="page-title">Capture the day</h1><p class="subtitle">Record the work, flag what is next, and attach jobsite photos.</p>' +
     period(report.date, 'date') +
-    '<div class="meta-grid">' + field('DATE', report.date, 'disabled', false) + field('PROJECT', report.project, 'class="daily-input input" data-field="project" list="jobsite-options" placeholder="Choose or enter a jobsite"', false) + '</div>' +
+    '<div class="meta-grid">' + field('DATE', report.date, 'disabled', false) + choiceField('PROJECT', report.project, 'class="daily-input" data-field="project" placeholder="Choose or enter a jobsite"', 'jobsites', 'daily-project') + '</div>' +
     '<section class="form-section"><div class="form-band">WORK COMPLETED TODAY</div>' + field('DETAILS', report.completed, 'class="daily-input textarea large" data-field="completed" placeholder="Describe completed work, quantities, locations, and crews..."', true, 'large') + '</section>' +
     '<section class="form-section"><div class="form-band">NEXT-DAY LOOK-AHEAD</div>' + field('PLAN', report.lookAhead, 'class="daily-input textarea" data-field="lookAhead" placeholder="What is planned for the next workday?"', true) + '</section>' +
     '<section class="form-section"><div class="dark-label">DELAYS, ISSUES, OR MATERIALS NEEDED</div>' + field('NOTES', report.issues, 'class="daily-input textarea" data-field="issues" placeholder="Safety concerns, delays, inspections, deliveries, or materials..."', true) + '</section>' +
@@ -230,11 +245,11 @@ function taskFormView() {
   const task = existing || createTask();
   const assignees = taskFormAssignees.length ? taskFormAssignees : [''];
   const assigneeFields = assignees.map(function(name,index) {
-    return '<div class="assignee-row"><label class="field"><span>' + (index === 0 ? 'PRIMARY ASSIGNEE' : 'ADDITIONAL ASSIGNEE') + ' <small>OPTIONAL</small></span><input class="input task-assignee-input" list="employee-options" value="' + esc(name) + '" placeholder="Choose or enter a name"></label>' + (index ? '<button type="button" class="remove-assignee" data-action="remove-task-assignee" data-assignee-index="' + index + '">Remove</button>' : '') + '</div>';
+    return '<div class="assignee-row">' + choiceField(index === 0 ? 'PRIMARY ASSIGNEE (OPTIONAL)' : 'ADDITIONAL ASSIGNEE (OPTIONAL)', name, 'class="task-assignee-input" placeholder="Choose or enter a name"', 'employees', 'task-assignee-' + index) + (index ? '<button type="button" class="remove-assignee" data-action="remove-task-assignee" data-assignee-index="' + index + '">Remove</button>' : '') + '</div>';
   }).join('');
   return '<form id="task-editor-form" class="task-editor panel"><div class="task-editor-head"><div><div class="kicker">' + (existing ? 'EDIT TASK' : 'QUICK CAPTURE') + '</div><h2>' + (existing ? 'Update jobsite task' : 'Add work that needs attention') + '</h2></div><button type="button" class="task-close" data-action="cancel-task-form" aria-label="Close task form">×</button></div>' +
     '<label class="field"><span>TASK NAME</span><input class="input" name="title" value="' + esc(task.title) + '" placeholder="What needs to be done?" required></label>' +
-    '<label class="field"><span>PROJECT / JOBSITE</span><input class="input" name="project" list="jobsite-options" value="' + esc(task.project) + '" placeholder="Choose or enter a jobsite" required></label>' +
+    choiceField('PROJECT / JOBSITE', task.project, 'name="project" placeholder="Choose or enter a jobsite" required', 'jobsites', 'task-project') +
     '<div class="task-form-grid"><label class="field"><span>STATUS</span><select class="input task-form-status" name="status">' + taskOptions(TASK_STATUSES,task.status) + '</select></label>' +
     '<label class="field"><span>PRIORITY</span><select class="input" name="priority">' + taskOptions(TASK_PRIORITIES,task.priority) + '</select></label></div>' +
     '<label class="field"><span>DUE DATE <small>OPTIONAL</small></span><input class="input" type="date" name="dueDate" value="' + esc(task.dueDate) + '"></label>' +
@@ -330,17 +345,27 @@ function saveTaskForm(event) {
 
 function directoryManager(type,title,emptyText) {
   const items = directoryValues(type,false);
+  const activeCount = items.filter(function(item) { return item.active; }).length;
   const rows = items.map(function(item) {
     return '<div class="directory-row"><input class="input directory-name" data-directory="' + type + '" data-directory-id="' + item.id + '" value="' + esc(item.name) + '" aria-label="' + esc(title) + ' name"><label class="directory-toggle"><input type="checkbox" class="directory-active" data-directory="' + type + '" data-directory-id="' + item.id + '" ' + (item.active ? 'checked' : '') + '><span>' + (item.active ? 'Active' : 'Inactive') + '</span></label><button class="remove" data-action="remove-directory-item" data-directory="' + type + '" data-directory-id="' + item.id + '">Remove</button></div>';
   }).join('');
-  return '<section class="panel settings-card directory-card"><div class="card-title">' + esc(title) + '</div><div class="card-body">Active names appear in dropdowns. Typing a new name in a form does not add it here.</div><div class="directory-list">' + (rows || '<div class="directory-empty">' + esc(emptyText) + '</div>') + '</div><div class="directory-add"><input class="input" id="add-' + type + '" placeholder="Add a name"><button class="button secondary" data-action="add-directory-item" data-directory="' + type + '">Add</button></div></section>';
+  return '<details class="panel settings-card directory-card collapsible-card" data-settings-section="' + type + '" ' + (settingsSections[type] ? 'open' : '') + '><summary><div><div class="card-title">' + esc(title) + '</div><div class="card-body">' + activeCount + ' active · ' + items.length + ' total</div></div><span class="collapse-arrow" aria-hidden="true">⌄</span></summary><div class="collapsible-body"><div class="card-body">Active names appear in dropdowns. Typing a new name in a form does not add it here.</div><div class="directory-list">' + (rows || '<div class="directory-empty">' + esc(emptyText) + '</div>') + '</div><div class="directory-add"><input class="input" id="add-' + type + '" placeholder="Add a name"><button class="button secondary" data-action="add-directory-item" data-directory="' + type + '">Add</button></div></div></details>';
 }
 
 function reportStorageRows() {
-  return Object.values(data.reports || {}).filter(function(report) { return report.photos && report.photos.length; }).sort(function(a,b) { return b.date.localeCompare(a.date); }).map(function(report) {
+  const reports = Object.values(data.reports || {}).filter(function(report) { return report.photos && report.photos.length; }).sort(function(a,b) { return b.date.localeCompare(a.date); });
+  const pageSize = 5;
+  const totalPages = Math.max(1,Math.ceil(reports.length/pageSize));
+  photoCleanupPage = Math.min(photoCleanupPage,totalPages-1);
+  const shown = reports.slice(photoCleanupPage*pageSize,photoCleanupPage*pageSize+pageSize);
+  const html = shown.map(function(report) {
     const bytes = report.photos.reduce(function(sum,photo) { return sum + Number(photo.bytes || 0); },0);
     return '<div class="storage-report"><div><b>' + esc(report.date) + '</b><span>' + esc(report.project || 'No project') + ' · ' + report.photos.length + ' photo' + (report.photos.length === 1 ? '' : 's') + (bytes ? ' · ' + formatBytes(bytes) : '') + '</span></div><div><button data-action="open-storage-report" data-date="' + report.date + '">Open</button><button class="remove" data-action="remove-report-photos" data-date="' + report.date + '">Remove photos</button></div></div>';
   }).join('');
+  const pages = totalPages > 1 ? '<nav class="cleanup-pages" aria-label="Photo report pages">' + Array.from({length:totalPages},function(_,index) {
+    return '<button data-action="photo-cleanup-page" data-page="' + index + '" class="' + (index === photoCleanupPage ? 'active' : '') + '" aria-label="Photo reports page ' + (index+1) + '">' + (index+1) + '</button>';
+  }).join('') + '</nav>' : '';
+  return { html:html, pages:pages, total:reports.length, totalPages:totalPages };
 }
 
 function storageStatusView() {
@@ -363,8 +388,7 @@ function settingsView() {
     '<section class="panel settings-card data-card"><div class="card-title">Data & Storage</div><div class="card-body">Photos use the device’s larger app database. Exact capacity is controlled by the browser and available device space.</div>' + storageStatusView() +
     '<div class="storage-actions"><button class="button secondary" data-action="refresh-storage">Refresh usage</button><button class="button secondary" data-action="protect-storage">Protect offline data</button></div>' +
     '<div class="backup-grid"><button class="button" data-action="export-backup">Create backup</button><button class="button secondary" data-action="restore-backup">Restore backup</button></div>' +
-    '<div class="cleanup-head"><div><b>Photo cleanup</b><span>Photos are never deleted automatically.</span></div><label>Before <input id="cleanup-before" class="input" type="date"></label><button class="remove" data-action="remove-older-photos">Remove older photos</button></div>' +
-    '<div class="storage-report-list">' + (photoReports || '<div class="directory-empty">No saved photo reports.</div>') + '</div></section>' +
+    '<details class="photo-cleanup collapsible-card" data-settings-section="photos" ' + (settingsSections.photos ? 'open' : '') + '><summary><div><b>Photo cleanup</b><span>' + photoReports.total + ' report' + (photoReports.total === 1 ? '' : 's') + ' with photos</span></div><span class="collapse-arrow" aria-hidden="true">⌄</span></summary><div class="collapsible-body"><div class="cleanup-head"><div><b>Remove older photos</b><span>Photos are never deleted automatically.</span></div><label>Before <input id="cleanup-before" class="input" type="date"></label><button class="remove" data-action="remove-older-photos">Remove older photos</button></div><div class="storage-report-list">' + (photoReports.html || '<div class="directory-empty">No saved photo reports.</div>') + '</div>' + photoReports.pages + '</div></details></section>' +
     '<section class="panel settings-card" style="margin-top:20px"><div class="toggle-row"><div class="toggle-copy"><div class="card-title">Daily reminder</div><div class="card-body">Optional reminder when today’s hours or progress report are incomplete.</div></div><input id="notification-toggle" class="toggle" type="checkbox" ' + (settings.notificationsEnabled ? 'checked' : '') + '></div>' +
     (settings.notificationsEnabled ? '<div class="time-section">' + field('REMINDER TIME (24-HOUR HH:MM)', settings.reminderTime, 'id="reminder-time" maxlength="5" inputmode="numeric" placeholder="17:00"', false) + '<div class="help">' + formatTime(settings.reminderTime) + '</div><div class="card-body" style="margin-top:8px">Web reminders run while FieldLog is open. Fully background reminders require a hosted push service.</div></div>' : '<div class="card-body">Notifications are optional and currently off.</div>') + '</section>' +
     '<section class="panel settings-card" style="margin-top:20px"><div class="card-title">Install FieldLog</div><ol class="install-steps"><li>Open this site in Safari.</li><li>Tap Share.</li><li>Tap Add to Home Screen.</li><li>Turn on Open as Web App, then tap Add.</li></ol></section></main>';
@@ -493,6 +517,19 @@ function bind() {
       render();
     });
   });
+  document.querySelectorAll('.directory-choice-input').forEach(function(input) {
+    function openChoices() {
+      document.querySelectorAll('.choice-menu').forEach(function(menu) { menu.hidden = menu.id !== input.dataset.choiceTarget; });
+      document.querySelectorAll('.choice-arrow').forEach(function(button) { button.setAttribute('aria-expanded',button.dataset.choicePanel === input.dataset.choiceTarget ? 'true' : 'false'); });
+    }
+    input.addEventListener('focus',openChoices);
+    input.addEventListener('click',openChoices);
+  });
+  document.querySelectorAll('[data-settings-section]').forEach(function(details) {
+    details.addEventListener('toggle',function() {
+      settingsSections[details.dataset.settingsSection] = details.open;
+    });
+  });
   const time = document.getElementById('reminder-time');
   if (time) time.addEventListener('input', function() { data.settings.reminderTime = time.value; persist(); configureReminder(); });
   const toggle = document.getElementById('notification-toggle');
@@ -575,6 +612,33 @@ async function shareOrSave(blob,filename) {
 }
 
 async function handleAction(action, el) {
+  if (action === 'toggle-directory-choice') {
+    const panel = document.getElementById(el.dataset.choicePanel);
+    if (panel) {
+      const willOpen = panel.hidden;
+      document.querySelectorAll('.choice-menu').forEach(function(menu) { menu.hidden = true; });
+      document.querySelectorAll('.choice-arrow').forEach(function(button) { button.setAttribute('aria-expanded','false'); });
+      panel.hidden = !willOpen;
+      el.setAttribute('aria-expanded',willOpen ? 'true' : 'false');
+    }
+  }
+  if (action === 'choose-directory-value') {
+    const input = document.getElementById(el.dataset.choiceInput);
+    if (input) {
+      input.value = el.dataset.choiceValue;
+      input.dispatchEvent(new Event('input',{ bubbles:true }));
+      input.dispatchEvent(new Event('change',{ bubbles:true }));
+      const panel = el.closest('.choice-menu');
+      if (panel) panel.hidden = true;
+      const arrow = input.parentElement.querySelector('.choice-arrow');
+      if (arrow) arrow.setAttribute('aria-expanded','false');
+    }
+  }
+  if (action === 'photo-cleanup-page') {
+    photoCleanupPage = Number(el.dataset.page) || 0;
+    settingsSections.photos = true;
+    render();
+  }
   if (action === 'week-previous') { selectedWeek = shiftDate(selectedWeek,-7); render(); }
   if (action === 'week-next') { selectedWeek = shiftDate(selectedWeek,7); render(); }
   if (action === 'week-current') { selectedWeek = currentWeekKey(); render(); }

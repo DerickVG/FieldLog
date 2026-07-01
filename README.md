@@ -1,4 +1,4 @@
-# FieldLog PWA v5
+# FieldLog PWA v5.1
 
 A free, installable, offline-first edition of FieldLog for iPhone, Android, and modern desktop browsers.
 
@@ -62,7 +62,7 @@ FieldLog never deletes photos automatically. Clearing browser website data can s
 
 ## Updating installed copies
 
-Publish replacement files to the same website address. The service-worker cache is named fieldlog-pwa-v5. Increase that cache name for each future release so installed copies update without being removed from the Home Screen.
+Publish replacement files to the same website address. The service-worker cache is named fieldlog-pwa-v5-1. Increase that cache name for each future release so installed copies update without being removed from the Home Screen.
 
 ## Photo markup
 
@@ -71,3 +71,7 @@ Tap any attached photo to draw, add arrows, circles, boxes, or text. Pinch with 
 ## Notifications
 
 Daily reminders work while FieldLog is open. Reliable background reminders require a hosted push service and are intentionally not included in this offline-only version.
+
+## v5.1 dropdown and Settings update
+
+Jobsite and assignee fields now use a dependable in-app dropdown that opens when the field or arrow is tapped. Only active Settings entries appear, and manual typing remains available. Assignee names, jobsite names, and Photo Cleanup are collapsible. Photo Cleanup displays five reports per numbered page.
