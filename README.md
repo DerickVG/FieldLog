@@ -1,17 +1,21 @@
-# FieldLog PWA
+# FieldLog PWA v5
 
-A free, installable web-app edition of FieldLog for iPhone and other modern browsers.
+A free, installable, offline-first edition of FieldLog for iPhone, Android, and modern desktop browsers.
 
-## Features
+## What v5 includes
 
-- Spiess Properties dashboard
-- Weekly timesheets with flexible project rows
-- Daily progress reports and compressed jobsite photos
-- Employee name settings
-- Template-matched printable PDF exports
+- Renaissance dashboard
+- Weekly timesheets with automatic Start/End hour calculations and flexible project rows
+- Daily progress reports with compressed jobsite photos and advanced photo markup
+- Task Tracker with primary and unlimited additional assignees
+- Managed assignee and jobsite dropdown lists in Settings
+- Active/inactive directory controls without changing historical records
+- IndexedDB photo storage with device usage, warnings, protected-storage request, and cleanup tools
+- Complete JSON backup and restore, including photos
+- PDF preflight checks and an in-app preview before Share / Save
+- Deterministic navy PDF layouts with no browser URL, timestamp, or blank print pages
 - Offline caching after the first successful visit
-- Optional in-session reminder notifications
-- Private on-device browser storage
+- Optional in-session daily reminders
 
 ## Test on Windows
 
@@ -23,9 +27,9 @@ Open the displayed local address in a browser. Local-network testing may require
 
 ## Publish free
 
-Upload every file in this folder to any HTTPS static host, such as GitHub Pages, Cloudflare Pages, or Netlify. No build command is required. The publish directory is the project root.
+Upload every file in this folder to the same HTTPS static host, such as GitHub Pages, Cloudflare Pages, or Netlify. No build command is required. The publish directory is the project root.
 
-After publishing, send employees the HTTPS link.
+Employees who already installed FieldLog keep the same Home Screen icon. After v5 is published at the same address, close and reopen the app to receive the new version.
 
 ## Install on iPhone
 
@@ -35,32 +39,35 @@ After publishing, send employees the HTTPS link.
 4. Enable Open as Web App.
 5. Tap Add.
 
-## PDF export
+On Android, open the link in Chrome and choose Install app or Add to Home screen.
 
-Export opens a print-ready version using the supplied navy timesheet or daily-progress layout. In the iPhone print screen, use the Share control to save or send the PDF.
+## PDF workflow
 
-## Storage and notifications
+Timesheets, daily reports, and task plans run a preflight check first. Warnings can be reviewed or bypassed with Export Anyway. FieldLog then opens an in-app PDF preview. Use Share / Save PDF to send or save the finished file.
 
-Records and photos remain in each browser's local storage and are not uploaded. Clearing Safari website data removes them. Photos are compressed before storage.
+Timesheets are true landscape PDFs. Daily reports place the report first and then one captioned photo per page. Browser URLs and generated timestamps are not added.
 
-Web reminders work while FieldLog is open. Reliable background reminders require a hosted Web Push service and are not included in this no-backend edition.
+## Storage, backup, and privacy
+
+Text records stay in lightweight browser storage. Photos are compressed and stored in IndexedDB, which normally provides substantially more room than localStorage, although the exact quota is decided by the device and browser.
+
+Open Settings → Data & Storage to:
+
+- See current usage and the browser-provided quota
+- Request protected offline storage
+- Create or restore a complete unencrypted backup
+- Open photo reports or remove photos from selected/older reports
+
+FieldLog never deletes photos automatically. Clearing browser website data can still erase offline information, so create backups periodically. No data is uploaded by this offline edition.
 
 ## Updating installed copies
 
-Publish changes to the same GitHub Pages address and increase the cache name in `sw.js` for every release (`fieldlog-pwa-v4`, then `v5`, and so on). Employees keep the same Home Screen icon; they only need to close and reopen FieldLog after the update is published.
+Publish replacement files to the same website address. The service-worker cache is named fieldlog-pwa-v5. Increase that cache name for each future release so installed copies update without being removed from the Home Screen.
 
 ## Photo markup
 
-Tap any attached jobsite photo to draw, add arrows, circles, boxes, or text. Undo removes the most recent change. Save replaces that photo with its marked-up copy in the report.
+Tap any attached photo to draw, add arrows, circles, boxes, or text. Pinch with two fingers to zoom or pan without creating markup. Select / Move lets you reposition, resize, edit text size, or delete an individual object. Undo removes the most recent edit.
 
-### Advanced photo editing
+## Notifications
 
-Pinch with two fingers to zoom or pan without creating markup. Use Select / Move to tap any existing object, move it, resize it with a corner handle, edit text size, or delete only that selected object.
-
-## Task Tracker
-
-Task Tracker coordinates work across multiple jobsites with color-coded status, priority, assignments, due dates, overdue and backlog views, project progress summaries, coordination notes, search, filters, archiving, and an exportable owner work plan.
-
-## Automatic timesheet hours
-
-Enter Start and End times and FieldLog automatically calculates the row hours, weekly total, and Home dashboard total. AM/PM, 24-hour time, and overnight shifts are supported.
+Daily reminders work while FieldLog is open. Reliable background reminders require a hosted push service and are intentionally not included in this offline-only version.

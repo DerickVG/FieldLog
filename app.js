@@ -1,8 +1,12 @@
 import {
   loadData, saveData, ensureWeek, ensureReport, currentDateKey, currentWeekKey,
-  shiftDate, newEntry, totalHours, completionForDate, parseDate
+  shiftDate, newEntry, totalHours, completionForDate, parseDate, normalizeData, directoryItem
 } from './data.js';
 import { exportTimesheet, exportDailyReport, exportTaskPlan } from './pdf.js';
+import {
+  hydratePhotoMedia, savePhotoMedia, deletePhotoMedia, storageEstimate,
+  requestPersistentStorage, buildBackup, restoreBackup
+} from './media-store.js';
 import { openPhotoEditor } from './markup.js';
 import { TASK_STATUSES, TASK_PRIORITIES, createTask, statusLabel, priorityLabel, isOverdue, isDueSoon, taskCounts, projectSummaries, sortTasks } from './tasks.js';
 
@@ -10,13 +14,18 @@ let data = loadData();
 let screen = 'home';
 let selectedWeek = currentWeekKey();
 let selectedDate = currentDateKey();
-let taskFilters = { search:'', project:'all', status:'open', priority:'all' };
+let taskFilters = { search:'', project:'all', status:'open', priority:'all', assignee:'all' };
 let taskFormOpen = false;
 let editingTaskId = null;
+let taskFormAssignees = [''];
 let reminderTimer = null;
+let storageInfo = { usage:0, quota:0, percent:0, persistent:false, photoUsage:0, photos:0 };
+let pdfPreview = null;
+let screenBeforePreview = 'home';
 const app = document.getElementById('app');
 const cameraInput = document.getElementById('camera-input');
 const libraryInput = document.getElementById('library-input');
+const backupInput = document.getElementById('backup-input');
 
 function esc(value) {
   return String(value == null ? '' : value).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
@@ -24,7 +33,43 @@ function esc(value) {
 
 function persist() {
   try { saveData(data); }
-  catch { alert('This device is running low on browser storage. Remove older photos before adding more.'); }
+  catch { alert('FieldLog could not save this change. Open Settings → Data & Storage to make room or create a backup.'); }
+}
+
+function directoryValues(type, activeOnly) {
+  return (data.settings[type] || [])
+    .filter(function(item) { return !activeOnly || item.active; })
+    .slice()
+    .sort(function(a,b) { return (b.lastUsed || '').localeCompare(a.lastUsed || '') || a.name.localeCompare(b.name); });
+}
+
+function directoryOptions(type) {
+  return directoryValues(type,true).map(function(item) { return '<option value="' + esc(item.name) + '"></option>'; }).join('');
+}
+
+function touchDirectory(type,name) {
+  const clean = String(name || '').trim().toLowerCase();
+  if (!clean) return;
+  const item = (data.settings[type] || []).find(function(entry) { return entry.name.trim().toLowerCase() === clean; });
+  if (item) item.lastUsed = new Date().toISOString();
+}
+
+function directoryLists() {
+  return '<datalist id="jobsite-options">' + directoryOptions('jobsites') + '</datalist><datalist id="employee-options">' + directoryOptions('employees') + '</datalist>';
+}
+
+function formatBytes(bytes) {
+  const value = Number(bytes || 0);
+  if (value < 1024) return value + ' B';
+  if (value < 1048576) return (value/1024).toFixed(1) + ' KB';
+  if (value < 1073741824) return (value/1048576).toFixed(1) + ' MB';
+  return (value/1073741824).toFixed(2) + ' GB';
+}
+
+async function refreshStorageInfo(shouldRender) {
+  try { storageInfo = await storageEstimate(data); } catch {}
+  if (shouldRender && screen === 'settings') render();
+  return storageInfo;
 }
 
 function field(label, value, attrs, multiline, extraClass) {
@@ -104,7 +149,7 @@ function timesheetView() {
       const base = 'data-day="' + dayIndex + '" data-entry="' + entryIndex + '"';
       return '<div class="entry"><div class="entry-heading"><div class="entry-number">PROJECT ' + (entryIndex + 1) + '</div>' +
         (day.entries.length > 1 ? '<button class="remove" data-action="remove-project" ' + base + '>Remove</button>' : '') + '</div>' +
-        field('PROJECT', entry.project, 'class="ts-input input" data-field="project" ' + base + ' placeholder="Project name"', false) +
+        field('PROJECT', entry.project, 'class="ts-input input" data-field="project" ' + base + ' list="jobsite-options" placeholder="Choose or enter a jobsite"', false) +
         '<div class="time-row">' +
         field('START', entry.startTime, 'class="ts-input input" data-field="startTime" ' + base + ' placeholder="7:00 AM"', false) +
         field('END', entry.endTime, 'class="ts-input input" data-field="endTime" ' + base + ' placeholder="3:30 PM"', false) +
@@ -116,23 +161,24 @@ function timesheetView() {
   }).join('');
   return '<main class="page"><div class="kicker">WEEKLY TIMESHEET</div><div class="title-row"><div class="title-copy"><h1 class="page-title">Log the week</h1><p class="subtitle">Add another project only when you need one</p></div><div class="total-badge"><div class="total-value">' + totalHours(sheet).toFixed(2) + '</div><div class="total-label">HOURS</div></div></div>' +
     period('Week of ' + sheet.weekOf, 'week') + days +
-    '<section class="export-card"><div class="export-title">Ready to submit?</div><div class="export-body">Creates a landscape PDF using the supplied navy timesheet layout.</div><button class="button" data-action="export-timesheet">Export weekly timesheet PDF</button></section></main>';
+    '<section class="export-card"><div class="export-title">Ready to submit?</div><div class="export-body">Creates a landscape PDF using the supplied navy timesheet layout.</div><button class="button" data-action="export-timesheet">Preview weekly timesheet PDF</button></section></main>';
 }
 
 function dailyView() {
   const report = ensureReport(data, selectedDate);
   const photos = report.photos.map(function(photo, index) {
-    return '<section class="photo-card"><button type="button" class="photo-edit-target" data-action="edit-photo" data-photo="' + index + '" aria-label="Mark up jobsite photo ' + (index + 1) + '"><img src="' + photo.uri + '" alt="Jobsite photo ' + (index + 1) + '"><span>Tap photo to mark up</span></button><div class="photo-body"><div class="photo-head"><div class="photo-number">PHOTO ' + (index + 1) + '</div><div class="photo-head-actions"><button class="edit-photo" data-action="edit-photo" data-photo="' + index + '">Mark up</button><button class="remove" data-action="remove-photo" data-photo="' + index + '">Remove</button></div></div>' +
+    const visual = photo.uri ? '<img src="' + photo.uri + '" alt="Jobsite photo ' + (index + 1) + '"><span>Tap photo to mark up</span>' : '<div class="photo-missing">Photo is loading from offline storage…</div>';
+    return '<section class="photo-card"><button type="button" class="photo-edit-target" data-action="edit-photo" data-photo="' + index + '" aria-label="Mark up jobsite photo ' + (index + 1) + '">' + visual + '</button><div class="photo-body"><div class="photo-head"><div class="photo-number">PHOTO ' + (index + 1) + '</div><div class="photo-head-actions"><button class="edit-photo" data-action="edit-photo" data-photo="' + index + '" ' + (photo.uri ? '' : 'disabled') + '>Mark up</button><button class="remove" data-action="remove-photo" data-photo="' + index + '">Remove</button></div></div>' +
       field('CAPTION', photo.caption, 'class="photo-caption input" data-photo="' + index + '" placeholder="Location, activity, or condition shown"', false) + '</div></section>';
   }).join('');
   return '<main class="page"><div class="kicker">DAILY PROGRESS REPORT</div><h1 class="page-title">Capture the day</h1><p class="subtitle">Record the work, flag what is next, and attach jobsite photos.</p>' +
     period(report.date, 'date') +
-    '<div class="meta-grid">' + field('DATE', report.date, 'disabled', false) + field('PROJECT', report.project, 'class="daily-input input" data-field="project" placeholder="Project name"', false) + '</div>' +
+    '<div class="meta-grid">' + field('DATE', report.date, 'disabled', false) + field('PROJECT', report.project, 'class="daily-input input" data-field="project" list="jobsite-options" placeholder="Choose or enter a jobsite"', false) + '</div>' +
     '<section class="form-section"><div class="form-band">WORK COMPLETED TODAY</div>' + field('DETAILS', report.completed, 'class="daily-input textarea large" data-field="completed" placeholder="Describe completed work, quantities, locations, and crews..."', true, 'large') + '</section>' +
     '<section class="form-section"><div class="form-band">NEXT-DAY LOOK-AHEAD</div>' + field('PLAN', report.lookAhead, 'class="daily-input textarea" data-field="lookAhead" placeholder="What is planned for the next workday?"', true) + '</section>' +
     '<section class="form-section"><div class="dark-label">DELAYS, ISSUES, OR MATERIALS NEEDED</div>' + field('NOTES', report.issues, 'class="daily-input textarea" data-field="issues" placeholder="Safety concerns, delays, inspections, deliveries, or materials..."', true) + '</section>' +
     '<h2 class="section-title">Jobsite photos <span class="card-body">(' + report.photos.length + ')</span></h2><div class="buttons"><button class="button" data-action="camera">● Take photo</button><button class="button secondary" data-action="library">＋ Photo library</button></div>' + photos +
-    '<section class="export-card"><div class="export-title">Create the report package</div><div class="export-body">The full report stays on page one; each photo follows with its caption directly above it.</div><button class="button" data-action="export-daily">Export report + photos as PDF</button></section></main>';
+    '<section class="export-card"><div class="export-title">Create the report package</div><div class="export-body">The full report stays on page one; each photo follows with its caption directly above it.</div><button class="button" data-action="export-daily">Preview report + photos PDF</button></section></main>';
 }
 
 function formatTime(value) {
@@ -157,10 +203,12 @@ function filteredTasks() {
   const today = currentDateKey();
   const search = taskFilters.search.trim().toLowerCase();
   const filtered = (data.tasks || []).filter(function(task) {
+    const assignees = (task.assignees && task.assignees.length ? task.assignees : (task.assignee ? [task.assignee] : []));
     if (taskFilters.status === 'archived') {
       if (!task.archived) return false;
     } else if (task.archived) return false;
     if (taskFilters.project !== 'all' && task.project !== taskFilters.project) return false;
+    if (taskFilters.assignee !== 'all' && !assignees.includes(taskFilters.assignee)) return false;
     if (taskFilters.priority !== 'all' && task.priority !== taskFilters.priority) return false;
     if (taskFilters.status === 'open' && task.status === 'complete') return false;
     if (['todo','progress','complete'].includes(taskFilters.status) && task.status !== taskFilters.status) return false;
@@ -168,7 +216,7 @@ function filteredTasks() {
     if (taskFilters.status === 'due-soon' && !isDueSoon(task,today)) return false;
     if (taskFilters.status === 'backlog' && (task.status === 'complete' || task.dueDate)) return false;
     if (search) {
-      const haystack = [task.title,task.project,task.assignee,task.description,task.coordination].join(' ').toLowerCase();
+      const haystack = [task.title,task.project,assignees.join(' '),task.description,task.coordination].join(' ').toLowerCase();
       if (!haystack.includes(search)) return false;
     }
     return true;
@@ -180,17 +228,19 @@ function taskFormView() {
   if (!taskFormOpen) return '';
   const existing = editingTaskId ? (data.tasks || []).find(function(task) { return task.id === editingTaskId; }) : null;
   const task = existing || createTask();
-  const projects = Array.from(new Set((data.tasks || []).map(function(item) { return item.project.trim(); }).filter(Boolean))).sort();
-  const projectOptions = projects.map(function(project) { return '<option value="' + esc(project) + '"></option>'; }).join('');
+  const assignees = taskFormAssignees.length ? taskFormAssignees : [''];
+  const assigneeFields = assignees.map(function(name,index) {
+    return '<div class="assignee-row"><label class="field"><span>' + (index === 0 ? 'PRIMARY ASSIGNEE' : 'ADDITIONAL ASSIGNEE') + ' <small>OPTIONAL</small></span><input class="input task-assignee-input" list="employee-options" value="' + esc(name) + '" placeholder="Choose or enter a name"></label>' + (index ? '<button type="button" class="remove-assignee" data-action="remove-task-assignee" data-assignee-index="' + index + '">Remove</button>' : '') + '</div>';
+  }).join('');
   return '<form id="task-editor-form" class="task-editor panel"><div class="task-editor-head"><div><div class="kicker">' + (existing ? 'EDIT TASK' : 'QUICK CAPTURE') + '</div><h2>' + (existing ? 'Update jobsite task' : 'Add work that needs attention') + '</h2></div><button type="button" class="task-close" data-action="cancel-task-form" aria-label="Close task form">×</button></div>' +
     '<label class="field"><span>TASK NAME</span><input class="input" name="title" value="' + esc(task.title) + '" placeholder="What needs to be done?" required></label>' +
-    '<label class="field"><span>PROJECT / JOBSITE</span><input class="input" name="project" list="task-projects" value="' + esc(task.project) + '" placeholder="Choose or enter a project" required><datalist id="task-projects">' + projectOptions + '</datalist></label>' +
+    '<label class="field"><span>PROJECT / JOBSITE</span><input class="input" name="project" list="jobsite-options" value="' + esc(task.project) + '" placeholder="Choose or enter a jobsite" required></label>' +
     '<div class="task-form-grid"><label class="field"><span>STATUS</span><select class="input task-form-status" name="status">' + taskOptions(TASK_STATUSES,task.status) + '</select></label>' +
     '<label class="field"><span>PRIORITY</span><select class="input" name="priority">' + taskOptions(TASK_PRIORITIES,task.priority) + '</select></label></div>' +
-    '<div class="task-form-grid"><label class="field"><span>DUE DATE <small>OPTIONAL</small></span><input class="input" type="date" name="dueDate" value="' + esc(task.dueDate) + '"></label>' +
-    '<label class="field"><span>ASSIGNED TO <small>OPTIONAL</small></span><input class="input" name="assignee" value="' + esc(task.assignee) + '" placeholder="Employee or crew"></label></div>' +
+    '<label class="field"><span>DUE DATE <small>OPTIONAL</small></span><input class="input" type="date" name="dueDate" value="' + esc(task.dueDate) + '"></label>' +
+    '<div class="assignee-list">' + assigneeFields + '</div><button type="button" class="add-project add-assignee" data-action="add-task-assignee"><b>＋</b>Add another assignee</button>' +
     '<label class="field"><span>WORK DETAILS</span><textarea class="textarea" name="description" placeholder="Scope, location, materials, or expected result">' + esc(task.description) + '</textarea></label>' +
-    '<label class="field"><span>COORDINATION / WAITING ON <small>OPTIONAL</small></span><textarea class="textarea compact-textarea" name="coordination" placeholder="Delivery, inspection, another trade, access, or decision needed">' + esc(task.coordination) + '</textarea></label>' +
+    '<label class="field"><span>COORDINATION / WAITING ON <small>OPTIONAL</small></span><textarea class="textarea compact-textarea" name="coordination" placeholder="Delivery, inspection, access, or decision needed">' + esc(task.coordination) + '</textarea></label>' +
     '<div class="task-editor-actions">' + (existing ? '<button type="button" class="button danger" data-action="delete-task" data-task="' + task.id + '">Delete</button>' : '') + '<button type="button" class="button secondary" data-action="cancel-task-form">Cancel</button><button class="button" type="submit">' + (existing ? 'Save changes' : 'Add task') + '</button></div></form>';
 }
 
@@ -209,7 +259,7 @@ function taskCardView(task, today) {
   return '<article class="task-card status-' + task.status + (task.archived ? ' archived' : '') + '">' +
     '<div class="task-card-top"><div class="task-project">' + esc(task.project || 'Unassigned project') + '</div><select aria-label="Task status" class="task-status-select status-' + task.status + '" data-task-status="' + task.id + '">' + statusOptions + '</select></div>' +
     '<h3>' + esc(task.title || 'Untitled task') + '</h3><div class="task-tags"><select aria-label="Task priority" class="task-priority-select priority-' + task.priority + '" data-task-priority="' + task.id + '">' + priorityOptions + '</select>' + taskDueMarkup(task,today) + '</div>' +
-    (task.assignee ? '<div class="task-assignee">ASSIGNED TO <b>' + esc(task.assignee) + '</b></div>' : '<div class="task-assignee unassigned">NOT YET ASSIGNED</div>') +
+    ((task.assignees && task.assignees.length) || task.assignee ? '<div class="task-assignee">ASSIGNED TO <b>' + esc((task.assignees && task.assignees.length ? task.assignees : [task.assignee]).join(', ')) + '</b></div>' : '<div class="task-assignee unassigned">NOT YET ASSIGNED</div>') +
     description + coordination +
     '<div class="task-card-actions"><button data-action="edit-task" data-task="' + task.id + '">Edit details</button><button data-action="archive-task" data-task="' + task.id + '">' + (task.archived ? 'Restore' : 'Archive') + '</button></div></article>';
 }
@@ -219,9 +269,13 @@ function tasksView() {
   const allTasks = data.tasks || [];
   const counts = taskCounts(allTasks,today);
   const projects = Array.from(new Set(allTasks.filter(function(task) { return !task.archived && task.project.trim(); }).map(function(task) { return task.project.trim(); }))).sort();
+  const activeNames = directoryValues('employees',true).map(function(item) { return item.name; });
+  const taskNames = allTasks.flatMap(function(task) { return task.assignees && task.assignees.length ? task.assignees : (task.assignee ? [task.assignee] : []); });
+  const assignees = Array.from(new Set(activeNames.concat(taskNames).filter(Boolean))).sort();
   const visibleTasks = filteredTasks();
   const summaries = projectSummaries(allTasks);
   const projectOptions = '<option value="all">All jobsites</option>' + projects.map(function(project) { return '<option value="' + esc(project) + '" ' + (taskFilters.project === project ? 'selected' : '') + '>' + esc(project) + '</option>'; }).join('');
+  const assigneeOptions = '<option value="all">All assignees</option>' + assignees.map(function(name) { return '<option value="' + esc(name) + '" ' + (taskFilters.assignee === name ? 'selected' : '') + '>' + esc(name) + '</option>'; }).join('');
   const statusFilters = [
     ['open','Open work'],['all','All active'],['todo','To-do'],['progress','In Progress'],['complete','Complete'],['overdue','Overdue'],['due-soon','Due soon'],['backlog','Backlog'],['archived','Archived']
   ].map(function(item) { return '<option value="' + item[0] + '" ' + (taskFilters.status === item[0] ? 'selected' : '') + '>' + item[1] + '</option>'; }).join('');
@@ -231,11 +285,11 @@ function tasksView() {
   }).join('');
   const cards = visibleTasks.map(function(task) { return taskCardView(task,today); }).join('');
   return '<main class="page task-page"><div class="kicker">TASK TRACKER</div><h1 class="page-title">Coordinate every jobsite</h1><p class="subtitle">Capture work, assign responsibility, track deadlines, and see what needs attention across projects.</p>' +
-    '<div class="task-command"><button class="button" data-action="add-task">＋ Add task</button><button class="button secondary" data-action="export-tasks">Export plan</button></div>' +
+    '<div class="task-command"><button class="button" data-action="add-task">＋ Add task</button><button class="button secondary" data-action="export-tasks">Preview task plan PDF</button></div>' +
     '<section class="task-stats"><button data-task-filter-status="open"><b>' + (counts.todo+counts.progress) + '</b><span>OPEN</span></button><button data-task-filter-status="progress"><b>' + counts.progress + '</b><span>IN PROGRESS</span></button><button data-task-filter-status="overdue" class="' + (counts.overdue ? 'attention' : '') + '"><b>' + counts.overdue + '</b><span>OVERDUE</span></button><button data-task-filter-status="backlog"><b>' + counts.backlog + '</b><span>BACKLOG</span></button></section>' +
     (counts.overdue ? '<div class="task-alert"><b>' + counts.overdue + ' task' + (counts.overdue === 1 ? '' : 's') + ' need immediate attention.</b><span>Review overdue work before planning today’s crew assignments.</span></div>' : '') +
     taskFormView() +
-    '<form id="task-filter-form" class="task-filters panel"><div class="task-search-row"><input id="task-search" class="input" value="' + esc(taskFilters.search) + '" placeholder="Search task, jobsite, or assignee"><button class="button" type="submit">Search</button></div><div class="task-filter-grid"><select class="input task-filter" data-task-filter="project">' + projectOptions + '</select><select class="input task-filter" data-task-filter="status">' + statusFilters + '</select><select class="input task-filter" data-task-filter="priority">' + priorityFilters + '</select></div><button type="button" class="task-reset" data-action="reset-task-filters">Reset filters</button></form>' +
+    '<form id="task-filter-form" class="task-filters panel"><div class="task-search-row"><input id="task-search" class="input" value="' + esc(taskFilters.search) + '" placeholder="Search task, jobsite, or assignee"><button class="button" type="submit">Search</button></div><div class="task-filter-grid"><select class="input task-filter" data-task-filter="project">' + projectOptions + '</select><select class="input task-filter" data-task-filter="assignee">' + assigneeOptions + '</select><select class="input task-filter" data-task-filter="status">' + statusFilters + '</select><select class="input task-filter" data-task-filter="priority">' + priorityFilters + '</select></div><button type="button" class="task-reset" data-action="reset-task-filters">Reset filters</button></form>' +
     (overview ? '<h2 class="section-title">Project overview</h2><div class="project-summary-list">' + overview + '</div>' : '') +
     '<div class="task-list-head"><h2 class="section-title">Work plan</h2><span>' + visibleTasks.length + ' shown</span></div>' +
     (cards || '<div class="task-empty"><div>✓</div><h3>No tasks match this view</h3><p>Add a task or change the filters to see more work.</p></div>') + '</main>';
@@ -244,18 +298,22 @@ function tasksView() {
 function saveTaskForm(event) {
   event.preventDefault();
   const form = event.currentTarget;
+  const assignees = Array.from(form.querySelectorAll('.task-assignee-input')).map(function(input) { return input.value.trim(); }).filter(Boolean);
   const values = {
     title:form.elements.title.value.trim(),
     project:form.elements.project.value.trim(),
     status:form.elements.status.value,
     priority:form.elements.priority.value,
     dueDate:form.elements.dueDate.value,
-    assignee:form.elements.assignee.value.trim(),
+    assignee:assignees[0] || '',
+    assignees:assignees,
     description:form.elements.description.value.trim(),
     coordination:form.elements.coordination.value.trim()
   };
   if (!values.title) return alert('Enter what needs to be done.');
   if (!values.project) return alert('Enter the project or jobsite.');
+  touchDirectory('jobsites',values.project);
+  assignees.forEach(function(name) { touchDirectory('employees',name); });
   const now = new Date().toISOString();
   if (editingTaskId) {
     const task = data.tasks.find(function(item) { return item.id === editingTaskId; });
@@ -266,30 +324,68 @@ function saveTaskForm(event) {
   persist();
   taskFormOpen = false;
   editingTaskId = null;
+  taskFormAssignees = [''];
   render();
+}
+
+function directoryManager(type,title,emptyText) {
+  const items = directoryValues(type,false);
+  const rows = items.map(function(item) {
+    return '<div class="directory-row"><input class="input directory-name" data-directory="' + type + '" data-directory-id="' + item.id + '" value="' + esc(item.name) + '" aria-label="' + esc(title) + ' name"><label class="directory-toggle"><input type="checkbox" class="directory-active" data-directory="' + type + '" data-directory-id="' + item.id + '" ' + (item.active ? 'checked' : '') + '><span>' + (item.active ? 'Active' : 'Inactive') + '</span></label><button class="remove" data-action="remove-directory-item" data-directory="' + type + '" data-directory-id="' + item.id + '">Remove</button></div>';
+  }).join('');
+  return '<section class="panel settings-card directory-card"><div class="card-title">' + esc(title) + '</div><div class="card-body">Active names appear in dropdowns. Typing a new name in a form does not add it here.</div><div class="directory-list">' + (rows || '<div class="directory-empty">' + esc(emptyText) + '</div>') + '</div><div class="directory-add"><input class="input" id="add-' + type + '" placeholder="Add a name"><button class="button secondary" data-action="add-directory-item" data-directory="' + type + '">Add</button></div></section>';
+}
+
+function reportStorageRows() {
+  return Object.values(data.reports || {}).filter(function(report) { return report.photos && report.photos.length; }).sort(function(a,b) { return b.date.localeCompare(a.date); }).map(function(report) {
+    const bytes = report.photos.reduce(function(sum,photo) { return sum + Number(photo.bytes || 0); },0);
+    return '<div class="storage-report"><div><b>' + esc(report.date) + '</b><span>' + esc(report.project || 'No project') + ' · ' + report.photos.length + ' photo' + (report.photos.length === 1 ? '' : 's') + (bytes ? ' · ' + formatBytes(bytes) : '') + '</span></div><div><button data-action="open-storage-report" data-date="' + report.date + '">Open</button><button class="remove" data-action="remove-report-photos" data-date="' + report.date + '">Remove photos</button></div></div>';
+  }).join('');
+}
+
+function storageStatusView() {
+  const percent = Math.max(0,Math.min(100,storageInfo.percent || 0));
+  const level = percent >= 95 ? 'critical' : percent >= 85 ? 'high' : percent >= 70 ? 'warning' : 'healthy';
+  const usageLabel = storageInfo.quota ? formatBytes(storageInfo.usage) + ' used' : formatBytes(storageInfo.photoUsage || storageInfo.usage) + ' in FieldLog photos';
+  const quotaLabel = storageInfo.quota ? percent.toFixed(1) + '% of ' + formatBytes(storageInfo.quota) : 'Total limit not reported by this browser';
+  return '<div class="storage-meter ' + level + '"><div class="storage-meter-head"><b>' + usageLabel + '</b><span>' + quotaLabel + '</span></div><i><span style="width:' + percent + '%"></span></i><div class="storage-facts"><span>' + (storageInfo.photos || 0) + ' saved photos</span><span>' + (storageInfo.persistent ? 'Protected storage enabled' : 'Standard device storage') + '</span></div></div>' +
+    (percent >= 95 ? '<div class="storage-warning critical">Storage is nearly full. Back up FieldLog and remove older photos before adding more.</div>' : percent >= 85 ? '<div class="storage-warning">Storage is getting full. Review older photo reports soon.</div>' : percent >= 70 ? '<div class="storage-warning mild">You have used more than 70% of the space currently available to FieldLog.</div>' : '');
 }
 
 function settingsView() {
   const settings = data.settings;
+  const photoReports = reportStorageRows();
   return '<main class="page"><div class="kicker">SETTINGS</div><h1 class="page-title">Your profile</h1><p class="subtitle">Set the name that appears at the top of every exported timesheet and daily progress report.</p>' +
     '<section class="panel settings-card">' + field('NAME', settings.name, 'id="name-setting" placeholder="Enter your full name" autocomplete="name"', false) + '<div class="saved">Changes save automatically on this device.</div></section>' +
     '<section class="preview"><div class="preview-label">EXPORT PREVIEW</div><div class="preview-name">' + esc(settings.name || 'Your Name') + '</div><div class="preview-rule"></div><div class="preview-doc">WEEKLY TIMESHEET / DAILY PROGRESS REPORT</div></section>' +
+    directoryManager('employees','Assignee names','No assignee names have been added.') +
+    directoryManager('jobsites','Jobsite names','No jobsites have been added yet.') +
+    '<section class="panel settings-card data-card"><div class="card-title">Data & Storage</div><div class="card-body">Photos use the device’s larger app database. Exact capacity is controlled by the browser and available device space.</div>' + storageStatusView() +
+    '<div class="storage-actions"><button class="button secondary" data-action="refresh-storage">Refresh usage</button><button class="button secondary" data-action="protect-storage">Protect offline data</button></div>' +
+    '<div class="backup-grid"><button class="button" data-action="export-backup">Create backup</button><button class="button secondary" data-action="restore-backup">Restore backup</button></div>' +
+    '<div class="cleanup-head"><div><b>Photo cleanup</b><span>Photos are never deleted automatically.</span></div><label>Before <input id="cleanup-before" class="input" type="date"></label><button class="remove" data-action="remove-older-photos">Remove older photos</button></div>' +
+    '<div class="storage-report-list">' + (photoReports || '<div class="directory-empty">No saved photo reports.</div>') + '</div></section>' +
     '<section class="panel settings-card" style="margin-top:20px"><div class="toggle-row"><div class="toggle-copy"><div class="card-title">Daily reminder</div><div class="card-body">Optional reminder when today’s hours or progress report are incomplete.</div></div><input id="notification-toggle" class="toggle" type="checkbox" ' + (settings.notificationsEnabled ? 'checked' : '') + '></div>' +
     (settings.notificationsEnabled ? '<div class="time-section">' + field('REMINDER TIME (24-HOUR HH:MM)', settings.reminderTime, 'id="reminder-time" maxlength="5" inputmode="numeric" placeholder="17:00"', false) + '<div class="help">' + formatTime(settings.reminderTime) + '</div><div class="card-body" style="margin-top:8px">Web reminders run while FieldLog is open. Fully background reminders require a hosted push service.</div></div>' : '<div class="card-body">Notifications are optional and currently off.</div>') + '</section>' +
     '<section class="panel settings-card" style="margin-top:20px"><div class="card-title">Install FieldLog</div><ol class="install-steps"><li>Open this site in Safari.</li><li>Tap Share.</li><li>Tap Add to Home Screen.</li><li>Turn on Open as Web App, then tap Add.</li></ol></section></main>';
 }
 
+function pdfPreviewView() {
+  if (!pdfPreview) return '<main class="page"><h1>PDF preview unavailable</h1><button class="button" data-action="close-pdf-preview">Go back</button></main>';
+  return '<main class="pdf-preview-page"><div class="pdf-preview-head"><button data-action="close-pdf-preview">‹ Back</button><div><div class="kicker">PDF PREVIEW</div><h1>' + esc(pdfPreview.title) + '</h1><span>' + pdfPreview.pageCount + ' page' + (pdfPreview.pageCount === 1 ? '' : 's') + '</span></div></div><div class="pdf-frame-wrap"><iframe class="pdf-frame" src="' + pdfPreview.url + '#toolbar=0&view=FitH" title="PDF preview"></iframe></div><div class="pdf-preview-actions"><button class="button" data-action="share-pdf">Share / Save PDF</button><button class="button secondary" data-action="print-pdf">Print</button></div></main>';
+}
+
 function render() {
   ensureWeek(data, selectedWeek);
   ensureReport(data, selectedDate);
-  const view = screen === 'timesheet' ? timesheetView() : screen === 'daily' ? dailyView() : screen === 'tasks' ? tasksView() : screen === 'settings' ? settingsView() : homeView();
-  app.innerHTML = '<div class="shell">' + view + nav() + '</div>';
+  const view = screen === 'timesheet' ? timesheetView() : screen === 'daily' ? dailyView() : screen === 'tasks' ? tasksView() : screen === 'settings' ? settingsView() : screen === 'pdf-preview' ? pdfPreviewView() : homeView();
+  app.innerHTML = '<div class="shell">' + view + (screen === 'pdf-preview' ? '' : nav()) + directoryLists() + '</div>';
   bind();
 }
 
 function bind() {
   document.querySelectorAll('[data-screen]').forEach(function(el) {
-    el.addEventListener('click', function() { screen = el.dataset.screen; render(); });
+    el.addEventListener('click', function() { screen = el.dataset.screen; if (screen === 'settings') refreshStorageInfo(false).then(render); else render(); });
   });
   document.querySelectorAll('.ts-input').forEach(function(el) {
     el.addEventListener('input', function() {
@@ -308,12 +404,14 @@ function bind() {
       if (total) total.textContent = totalHours(sheet).toFixed(2);
       persist();
     });
+    if (el.dataset.field === 'project') el.addEventListener('change',function() { touchDirectory('jobsites',el.value); persist(); });
   });
   document.querySelectorAll('.daily-input').forEach(function(el) {
     el.addEventListener('input', function() {
       ensureReport(data, selectedDate)[el.dataset.field] = el.value;
       persist();
     });
+    if (el.dataset.field === 'project') el.addEventListener('change',function() { touchDirectory('jobsites',el.value); persist(); });
   });
   document.querySelectorAll('.photo-caption').forEach(function(el) {
     el.addEventListener('input', function() {
@@ -376,6 +474,25 @@ function bind() {
     if (previewName) previewName.textContent = name.value.trim() || 'Your Name';
     persist();
   });
+  document.querySelectorAll('.directory-name').forEach(function(el) {
+    el.addEventListener('change',function() {
+      const item = (data.settings[el.dataset.directory] || []).find(function(entry) { return entry.id === el.dataset.directoryId; });
+      const clean = el.value.trim();
+      if (!item || !clean) return render();
+      item.name = clean;
+      persist();
+      render();
+    });
+  });
+  document.querySelectorAll('.directory-active').forEach(function(el) {
+    el.addEventListener('change',function() {
+      const item = (data.settings[el.dataset.directory] || []).find(function(entry) { return entry.id === el.dataset.directoryId; });
+      if (!item) return;
+      item.active = el.checked;
+      persist();
+      render();
+    });
+  });
   const time = document.getElementById('reminder-time');
   if (time) time.addEventListener('input', function() { data.settings.reminderTime = time.value; persist(); configureReminder(); });
   const toggle = document.getElementById('notification-toggle');
@@ -385,7 +502,79 @@ function bind() {
   });
 }
 
-function handleAction(action, el) {
+function captureTaskAssignees() {
+  taskFormAssignees = Array.from(document.querySelectorAll('.task-assignee-input')).map(function(input) { return input.value; });
+  if (!taskFormAssignees.length) taskFormAssignees = [''];
+}
+
+function preflightTimesheet(sheet) {
+  const warnings = [];
+  if (!data.settings.name.trim()) warnings.push('Add your name in Settings.');
+  sheet.days.forEach(function(day) {
+    day.entries.forEach(function(entry,index) {
+      const used = Boolean(entry.project || entry.startTime || entry.endTime || entry.hours || entry.notes);
+      if (!used) return;
+      const missing = [];
+      if (!entry.project.trim()) missing.push('project');
+      if (!entry.startTime.trim()) missing.push('start time');
+      if (!entry.endTime.trim()) missing.push('end time');
+      if (missing.length) warnings.push(day.day + ' project ' + (index+1) + ': missing ' + missing.join(', ') + '.');
+    });
+  });
+  return warnings;
+}
+
+function preflightDaily(report) {
+  const warnings = [];
+  if (!data.settings.name.trim()) warnings.push('Add your name in Settings.');
+  if (!report.project.trim()) warnings.push('Add the project or jobsite.');
+  if (!report.completed.trim()) warnings.push('Add work completed details.');
+  return warnings;
+}
+
+function preflightTasks(tasks) {
+  const warnings = [];
+  tasks.forEach(function(task,index) {
+    const missing = [];
+    if (!task.title.trim()) missing.push('task name');
+    if (!task.project.trim()) missing.push('jobsite');
+    if (!task.status) missing.push('status');
+    if (!task.priority) missing.push('priority');
+    if (missing.length) warnings.push('Task ' + (index+1) + ': missing ' + missing.join(', ') + '.');
+  });
+  return warnings;
+}
+
+function approvePreflight(warnings) {
+  if (!warnings.length) return true;
+  return confirm('PDF preflight found:\n\n• ' + warnings.join('\n• ') + '\n\nContinue to the PDF preview anyway?');
+}
+
+function showPdfPreview(result,title,returnScreen) {
+  if (pdfPreview && pdfPreview.url) URL.revokeObjectURL(pdfPreview.url);
+  const blob = new Blob([result.bytes],{ type:'application/pdf' });
+  pdfPreview = { url:URL.createObjectURL(blob), blob:blob, filename:result.filename, pageCount:result.pageCount, title:title };
+  screenBeforePreview = returnScreen;
+  screen = 'pdf-preview';
+  render();
+}
+
+async function shareOrSave(blob,filename) {
+  const file = new File([blob],filename,{ type:blob.type || 'application/octet-stream' });
+  if (navigator.share && navigator.canShare && navigator.canShare({ files:[file] })) {
+    try { await navigator.share({ files:[file],title:filename }); return; } catch (error) { if (error && error.name === 'AbortError') return; }
+  }
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(function() { URL.revokeObjectURL(url); },2000);
+}
+
+async function handleAction(action, el) {
   if (action === 'week-previous') { selectedWeek = shiftDate(selectedWeek,-7); render(); }
   if (action === 'week-next') { selectedWeek = shiftDate(selectedWeek,7); render(); }
   if (action === 'week-current') { selectedWeek = currentWeekKey(); render(); }
@@ -402,21 +591,43 @@ function handleAction(action, el) {
   if (action === 'library') libraryInput.click();
   if (action === 'edit-photo') editPhoto(Number(el.dataset.photo));
   if (action === 'remove-photo') {
-    ensureReport(data,selectedDate).photos.splice(Number(el.dataset.photo),1); persist(); render();
+    const report = ensureReport(data,selectedDate);
+    const photo = report.photos[Number(el.dataset.photo)];
+    if (photo && confirm('Remove this photo from the daily report?')) {
+      report.photos.splice(Number(el.dataset.photo),1);
+      await deletePhotoMedia(photo.id);
+      persist();
+      await refreshStorageInfo(false);
+      render();
+    }
   }
   if (action === 'add-task') {
     editingTaskId = null;
+    taskFormAssignees = [''];
     taskFormOpen = true;
     render();
   }
   if (action === 'cancel-task-form') {
     editingTaskId = null;
     taskFormOpen = false;
+    taskFormAssignees = [''];
     render();
   }
   if (action === 'edit-task') {
     editingTaskId = el.dataset.task;
+    const task = data.tasks.find(function(item) { return item.id === editingTaskId; });
+    taskFormAssignees = task && task.assignees && task.assignees.length ? task.assignees.slice() : [task && task.assignee || ''];
     taskFormOpen = true;
+    render();
+  }
+  if (action === 'add-task-assignee') {
+    captureTaskAssignees();
+    taskFormAssignees.push('');
+    render();
+  }
+  if (action === 'remove-task-assignee') {
+    captureTaskAssignees();
+    taskFormAssignees.splice(Number(el.dataset.assigneeIndex),1);
     render();
   }
   if (action === 'delete-task') {
@@ -439,23 +650,101 @@ function handleAction(action, el) {
     }
   }
   if (action === 'reset-task-filters') {
-    taskFilters = { search:'', project:'all', status:'open', priority:'all' };
+    taskFilters = { search:'', project:'all', status:'open', priority:'all', assignee:'all' };
     render();
   }
+  if (action === 'add-directory-item') {
+    const input = document.getElementById('add-' + el.dataset.directory);
+    const name = input && input.value.trim();
+    if (!name) return alert('Enter a name first.');
+    const items = data.settings[el.dataset.directory] || [];
+    if (items.some(function(item) { return item.name.toLowerCase() === name.toLowerCase(); })) return alert('That name is already in the list.');
+    items.push(directoryItem(name));
+    persist();
+    render();
+  }
+  if (action === 'remove-directory-item') {
+    const type = el.dataset.directory;
+    const item = (data.settings[type] || []).find(function(entry) { return entry.id === el.dataset.directoryId; });
+    if (item && confirm('Remove "' + item.name + '" from this list? Existing records will not change.')) {
+      data.settings[type] = data.settings[type].filter(function(entry) { return entry.id !== item.id; });
+      persist();
+      render();
+    }
+  }
+  if (action === 'open-storage-report') {
+    selectedDate = el.dataset.date;
+    screen = 'daily';
+    render();
+  }
+  if (action === 'remove-report-photos') {
+    const report = data.reports[el.dataset.date];
+    if (report && report.photos.length && confirm('Remove all ' + report.photos.length + ' photos from the report for ' + report.date + '? Report text will remain.')) {
+      for (const photo of report.photos) await deletePhotoMedia(photo.id);
+      report.photos = [];
+      persist();
+      await refreshStorageInfo(false);
+      render();
+    }
+  }
+  if (action === 'remove-older-photos') {
+    const cutoff = document.getElementById('cleanup-before').value;
+    if (!cutoff) return alert('Choose a cutoff date first.');
+    const reports = Object.values(data.reports || {}).filter(function(report) { return report.date < cutoff && report.photos.length; });
+    const count = reports.reduce(function(total,report) { return total + report.photos.length; },0);
+    if (!count) return alert('No photos were found before that date.');
+    if (confirm('Remove ' + count + ' photos dated before ' + cutoff + '? Report text will remain.')) {
+      for (const report of reports) {
+        for (const photo of report.photos) await deletePhotoMedia(photo.id);
+        report.photos = [];
+      }
+      persist();
+      await refreshStorageInfo(false);
+      render();
+    }
+  }
+  if (action === 'refresh-storage') await refreshStorageInfo(true);
+  if (action === 'protect-storage') {
+    const protectedStorage = await requestPersistentStorage();
+    await refreshStorageInfo(false);
+    alert(protectedStorage ? 'This browser granted protected offline storage to FieldLog.' : 'The browser kept standard storage. Your data still stays offline, but the browser controls whether protected storage is available.');
+    render();
+  }
+  if (action === 'export-backup') {
+    const backup = buildBackup(data);
+    const blob = new Blob([JSON.stringify(backup)],{ type:'application/json' });
+    await shareOrSave(blob,'FieldLog Backup ' + currentDateKey() + '.json');
+  }
+  if (action === 'restore-backup') backupInput.click();
   if (action === 'export-tasks') {
     const tasks = filteredTasks();
     if (!tasks.length) return alert('There are no tasks in the current view to export.');
-    exportTaskPlan(tasks, taskFilters.project === 'all' ? 'All Jobsites' : taskFilters.project);
+    if (!approvePreflight(preflightTasks(tasks))) return;
+    const result = await exportTaskPlan(tasks, taskFilters.project === 'all' ? 'All Jobsites' : taskFilters.project);
+    showPdfPreview(result,'Task plan','tasks');
   }
   if (action === 'export-timesheet') {
-    if (!data.settings.name.trim()) return alert('Enter your name in Settings before exporting.');
-    exportTimesheet(ensureWeek(data,selectedWeek),data.settings.name.trim());
+    const sheet = ensureWeek(data,selectedWeek);
+    if (!approvePreflight(preflightTimesheet(sheet))) return;
+    const result = await exportTimesheet(sheet,data.settings.name.trim());
+    showPdfPreview(result,'Weekly timesheet','timesheet');
   }
   if (action === 'export-daily') {
     const report = ensureReport(data,selectedDate);
-    if (!data.settings.name.trim()) return alert('Enter your name in Settings before exporting.');
-    if (!report.project.trim()) return alert('Enter a project name before exporting.');
-    exportDailyReport(report,data.settings.name.trim());
+    if (!approvePreflight(preflightDaily(report))) return;
+    const result = await exportDailyReport(report,data.settings.name.trim());
+    showPdfPreview(result,'Daily progress report','daily');
+  }
+  if (action === 'close-pdf-preview') {
+    if (pdfPreview && pdfPreview.url) URL.revokeObjectURL(pdfPreview.url);
+    pdfPreview = null;
+    screen = screenBeforePreview;
+    render();
+  }
+  if (action === 'share-pdf' && pdfPreview) await shareOrSave(pdfPreview.blob,pdfPreview.filename);
+  if (action === 'print-pdf' && pdfPreview) {
+    const frame = document.querySelector('.pdf-frame');
+    if (frame && frame.contentWindow) frame.contentWindow.print();
   }
 }
 
@@ -491,7 +780,9 @@ async function editPhoto(index) {
     photo.baseUri = baseUri;
     photo.uri = edited.uri;
     photo.markup = edited.actions;
+    await savePhotoMedia(photo);
     persist();
+    await refreshStorageInfo(false);
     render();
   } catch {
     alert('The photo could not be opened for editing.');
@@ -502,7 +793,9 @@ async function addPhotos(files) {
   const report = ensureReport(data,selectedDate);
   for (const file of Array.from(files)) {
     try {
-      report.photos.push({ id:Date.now().toString(36)+Math.random().toString(36).slice(2), uri:await compressPhoto(file), caption:'' });
+      const photo = { id:Date.now().toString(36)+Math.random().toString(36).slice(2), uri:await compressPhoto(file), caption:'', markup:[] };
+      await savePhotoMedia(photo);
+      report.photos.push(photo);
     } catch {
       alert('One photo could not be added. Try a JPEG or PNG image.');
     }
@@ -510,6 +803,9 @@ async function addPhotos(files) {
   persist();
   cameraInput.value = '';
   libraryInput.value = '';
+  await refreshStorageInfo(false);
+  if (storageInfo.percent >= 95) alert('FieldLog storage is nearly full. Create a backup and remove older photos in Settings → Data & Storage.');
+  else if (storageInfo.percent >= 85) alert('FieldLog storage is getting full. You can review older photo reports in Settings → Data & Storage.');
   render();
 }
 cameraInput.addEventListener('change',function(){addPhotos(cameraInput.files);});
@@ -553,8 +849,37 @@ function configureReminder() {
   },next.getTime()-now.getTime());
 }
 
+backupInput.addEventListener('change',async function() {
+  const file = backupInput.files && backupInput.files[0];
+  backupInput.value = '';
+  if (!file) return;
+  if (!confirm('Restore this FieldLog backup? Current app data on this device will be replaced.')) return;
+  try {
+    const backup = JSON.parse(await file.text());
+    data = normalizeData(await restoreBackup(backup));
+    persist();
+    await hydratePhotoMedia(data);
+    await refreshStorageInfo(false);
+    selectedWeek = currentWeekKey();
+    selectedDate = currentDateKey();
+    screen = 'home';
+    render();
+    alert('FieldLog backup restored.');
+  } catch {
+    alert('That file could not be restored as a FieldLog backup.');
+  }
+});
+
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.register('./sw.js').catch(function(){});
 }
 configureReminder();
 render();
+hydratePhotoMedia(data).then(async function(result) {
+  if (result.migrated) persist();
+  await refreshStorageInfo(false);
+  render();
+  if (result.missing) alert(result.missing + ' older photo' + (result.missing === 1 ? ' is' : 's are') + ' missing from offline storage. The report text is still available.');
+}).catch(function() {
+  alert('FieldLog could not open offline photo storage. Existing text records are still available.');
+});

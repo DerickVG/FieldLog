@@ -1,7 +1,7 @@
 {
   "name": "FieldLog",
   "short_name": "FieldLog",
-  "description": "Timesheets, daily progress reports, and jobsite photos.",
+  "description": "Offline timesheets, daily progress reports, jobsite photos, and task planning.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

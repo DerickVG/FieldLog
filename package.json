@@ -1,8 +1,9 @@
 {
   "name": "fieldlog-pwa",
-  "version": "1.0.0",
+  "version": "5.0.0",
   "private": true,
   "scripts": {
     "start": "npx serve ."
-  }
+  },
+  "description": "Offline timesheets, daily reports, jobsite photos, and task planning."
 }

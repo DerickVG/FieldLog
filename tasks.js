@@ -21,6 +21,7 @@ export function createTask(values) {
     priority:'medium',
     dueDate:'',
     assignee:'',
+    assignees:[],
     description:'',
     coordination:'',
     archived:false,
@@ -31,11 +32,16 @@ export function createTask(values) {
 }
 
 export function normalizeTask(task) {
-  return Object.assign(createTask(), task || {}, {
+  const normalized = Object.assign(createTask(), task || {}, {
     status:['todo','progress','complete'].includes(task && task.status) ? task.status : 'todo',
     priority:['low','medium','high','urgent'].includes(task && task.priority) ? task.priority : 'medium',
     archived:Boolean(task && task.archived)
   });
+  if (!Array.isArray(normalized.assignees)) normalized.assignees = [];
+  if (!normalized.assignees.length && normalized.assignee) normalized.assignees = [normalized.assignee];
+  normalized.assignees = normalized.assignees.filter(Boolean);
+  normalized.assignee = normalized.assignees[0] || '';
+  return normalized;
 }
 
 export function statusLabel(value) {
